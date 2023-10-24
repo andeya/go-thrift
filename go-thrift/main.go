@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/henrylee2cn/go-thrift/generator"
-	"github.com/henrylee2cn/go-thrift/parser"
+	"github.com/andeya/go-thrift/generator"
+	"github.com/andeya/go-thrift/parser"
 )
 
 var (

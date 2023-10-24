@@ -1,9 +1,9 @@
 Thrift Package for Go
 =====================
 
-[![Build Status](https://travis-ci.org/henrylee2cn/go-thrift.png)](https://travis-ci.org/henrylee2cn/go-thrift)
+[![Build Status](https://travis-ci.org/andeya/go-thrift.png)](https://travis-ci.org/andeya/go-thrift)
 
-API Documentation: <http://godoc.org/github.com/henrylee2cn/go-thrift>
+API Documentation: <http://godoc.org/github.com/andeya/go-thrift>
 
 License
 -------
@@ -80,7 +80,7 @@ languages.
 
 How to use the go-thrift:
 
-    $ go install github.com/henrylee2cn/go-thrift/go-thrift
+    $ go install github.com/andeya/go-thrift/go-thrift
 
     $ go-thrift --help
     Usage of generator:

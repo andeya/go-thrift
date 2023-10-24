@@ -5,9 +5,19 @@ package parser
 
 import (
 	"bytes"
-	"fmt"
-	"strconv"
-	"strings"
+    "errors"
+    "fmt"
+    "io"
+    "io/ioutil"
+    "math"
+    "os"
+    "path/filepath"
+    "sort"
+    "strconv"
+    "strings"
+    "sync"
+    "unicode"
+    "unicode/utf8"
 )
 
 type Thrift struct {
@@ -43,7 +53,7 @@ func (t *Typedef) setComment(comment string) {
 
 type EnumValue struct {
 	Name        string
-	Value       int
+	Value       *int64
 	Annotations []*Annotation
 }
 
@@ -73,7 +83,7 @@ type Field struct {
 	ID          int
 	Name        string
 	Comment     string
-	Optional    bool
+	Optional    *bool
 	Type        *Type
 	Default     interface{}
 	Annotations []*Annotation
@@ -102,7 +112,7 @@ type Method struct {
 
 type Service struct {
 	Name        string
-	Extends     string
+	Extends     *Type
 	Comment     string
 	Methods     map[string]*Method
 	Annotations []*Annotation
@@ -170,7 +180,8 @@ func ifaceSliceToString(v interface{}) string {
 func unionToStruct(u union) *Struct {
 	st := (*Struct)(u)
 	for _, f := range st.Fields {
-		f.Optional = true
+	    optional := true
+		f.Optional = &optional
 	}
 	return st
 }
@@ -188,13 +199,17 @@ func toComment(v interface{}) string {
 		return ""
 	}
 	c := ifs[1].([]interface{})
-	b := make([]byte, len(c))
-	for i, v := range c {
-		b[i] = v.([]interface{})[1].([]uint8)[0]
+	b := make([]byte, 0, len(c))
+	for _, v := range c {
+		a := v.([]interface{})[1].([]uint8)
+		for _, v1 := range a {
+			b = append(b, v1)
+		}
 	}
 	s := strings.TrimSpace(SpaceInOne(string(b)))
 	for len(s) > 0 && s[0] == '*' {
 		s = strings.TrimLeft(s, "*")
+		s = strings.TrimRight(s, "*")
 		s = strings.TrimSpace(s)
 	}
 	return s
@@ -228,10 +243,8 @@ var spaceReplacer = strings.NewReplacer(
 	"\t ", "\t",
 	"\v\v", "\v",
 	"\f\f", "\f",
-	string(0x85)+string(0x85),
-	string(0x85),
-	string(0xA0)+string(0xA0),
-	string(0xA0),
+	string([]rune{0x85, 0x85}), string([]rune{0x85}),
+    string([]rune{0xA0, 0xA0}), string([]rune{0xA0}),
 )
 
 // SpaceInOne combines multiple consecutive space characters into one.
@@ -246,7 +259,7 @@ func SpaceInOne(s string) string {
 
 }
 
-Grammar ← WE doc:(Comment WE)* statements:( Statement WE )* (EOF / SyntaxError) {
+Grammar ← WE doc:(Comment WE)* statements:( Statement WE )* (WE Comment)* WE (EOF / SyntaxError) {
 	thrift := &Thrift{
 		Includes: make(map[string]string),
 		Namespaces: make(map[string]string),
@@ -327,36 +340,47 @@ Const ← "const" _ typ:FieldType _ name:Identifier __ "=" __ value:ConstValue E
 
 Enum ← "enum" _ name:Identifier __ '{' __ values:(EnumValue __)* __ '}' _ annotations:TypeAnnotations? EOS {
 	vs := toIfaceSlice(values)
-	en := &Enum{
-		Name: string(name.(Identifier)),
-		Values: make(map[string]*EnumValue, len(vs)),
-		Annotations: toAnnotations(annotations),
-	}
-	// Assigns numbers in order. This will behave badly if some values are
-	// defined and other are not, but I think that's ok since that's a silly
-	// thing to do.
-	next := 0
-	for _, v := range vs {
-		ev := v.([]interface{})[0].(*EnumValue)
-		if ev.Value < 0 {
-			ev.Value = next
-		}
-		if ev.Value >= next {
-			next = ev.Value + 1
-		}
-		en.Values[ev.Name] = ev
-	}
-	return en, nil
+    en := &Enum{
+        Name:        string(name.(Identifier)),
+        Values:      make(map[string]*EnumValue, len(vs)),
+        Annotations: toAnnotations(annotations),
+    }
+    var max *int64
+    for _, v := range vs {
+        ev := v.([]interface{})[0].(*EnumValue)
+        if ev.Value != nil {
+            if max == nil {
+                max = ev.Value
+            } else if *ev.Value > *max {
+                max = ev.Value
+            }
+        }
+        en.Values[ev.Name] = ev
+    }
+    next := int64(0)
+    if max != nil {
+        next = *max + 1
+    }
+    for _, v := range vs {
+        ev := v.([]interface{})[0].(*EnumValue)
+        if ev.Value == nil {
+            v := next
+            ev.Value = &v
+            next += 1
+        }
+        en.Values[ev.Name] = ev
+    }
+    return en, nil
 }
 
 EnumValue ← name:Identifier _ value:('=' _ IntConstant)? _ annotations:TypeAnnotations? ListSeparator? {
 	ev := &EnumValue{
 		Name: string(name.(Identifier)),
-		Value: -1,
 		Annotations: toAnnotations(annotations),
 	}
 	if value != nil {
-		ev.Value = int(value.([]interface{})[2].(int64))
+		v := value.([]interface{})[2].(int64)
+        ev.Value = &v
 	}
 	return ev, nil
 }
@@ -392,7 +416,7 @@ FieldList ← fields:(Field WE)* {
 	return flds, nil
 }
 
-Field ← WE doc:(Comment WE)* id:IntConstant _ ':' _ req:FieldReq? _ typ:FieldType _ name:Identifier WS comment1:Comment? WE def:('=' _ ConstValue)? WS comment2:Comment? annotations:TypeAnnotations? ListSeparator? WS comment3:Comment? {
+Field ← WE doc:(Comment WE)* id:IntConstant _ ':' _ opt:FieldOptional? _ typ:FieldType _ name:Identifier WS comment1:Comment? WE def:('=' _ ConstValue)? WS comment2:Comment? annotations:TypeAnnotations? ListSeparator? WS comment3:Comment? {
 	f := &Field{
 		ID       : int(id.(int64)),
 		Name     : string(name.(Identifier)),
@@ -400,8 +424,9 @@ Field ← WE doc:(Comment WE)* id:IntConstant _ ':' _ req:FieldReq? _ typ:FieldT
 		Annotations: toAnnotations(annotations),
 		Comment: joinComment(toDoc(doc),toComment(comment1),toComment(comment2),toComment(comment3)),
 	}
-	if req != nil && !req.(bool) {
-		f.Optional = true
+	if opt != nil {
+	    optional := opt.(bool)
+		f.Optional = &optional
 	}
 	if def != nil {
 		f.Default = def.([]interface{})[2]
@@ -409,11 +434,11 @@ Field ← WE doc:(Comment WE)* id:IntConstant _ ':' _ req:FieldReq? _ typ:FieldT
 	return f, nil
 }
 
-FieldReq ← ("required" / "optional") {
-	return !bytes.Equal(c.text, []byte("optional")), nil
+FieldOptional ← ("required" / "optional") {
+	return bytes.Equal(c.text, []byte("optional")), nil
 }
 
-Service ← "service" _ name:Identifier _ extends:("extends" __ Identifier __)? __ '{' methods:(Function WE)* (__ '}' / EndOfServiceError) _ annotations:TypeAnnotations?  EOS {
+Service ← "service" _ name:Identifier _ extends:("extends" __ FieldType __)? __ '{' methods:(Function WE)* (__ '}' / EndOfServiceError) _ annotations:TypeAnnotations?  EOS {
 	ms := methods.([]interface{})
 	svc := &Service{
 		Name: string(name.(Identifier)),
@@ -421,7 +446,7 @@ Service ← "service" _ name:Identifier _ extends:("extends" __ Identifier __)? 
 		Annotations: toAnnotations(annotations),
 	}
 	if extends != nil {
-		svc.Extends = string(extends.([]interface{})[2].(Identifier))
+		svc.Extends = extends.([]interface{})[2].(*Type)
 	}
 	for _, m := range ms {
 		mt :=  m.([]interface{})[0].(*Method)
@@ -452,7 +477,8 @@ Function ← WE doc:(Comment WE)* oneway:("oneway" __)? typ:FunctionType __ name
 	if exceptions != nil {
 		m.Exceptions = exceptions.([]*Field)
 		for _, e := range m.Exceptions {
-			e.Optional = true
+		    optional := true
+			e.Optional = &optional
 		}
 	}
 	return m, nil
@@ -487,7 +513,7 @@ BaseType ← name:BaseTypeName _ annotations:TypeAnnotations? {
 	}, nil
 }
 
-BaseTypeName ← ("bool" / "byte" / "i16" / "i32" / "i64" / "double" / "string" / "binary" ) {
+BaseTypeName ← ("bool" / "byte" / "i16" / "i32" / "i64" / "double" / "string" / "binary" ) &( Whitespace / EOL / EOF / Comment / ">" / ":" / "," / ";" / ")" / "}" / "]") {
 	return string(c.text), nil
 }
 
@@ -524,7 +550,7 @@ CppType ← "cpp_type" cppType:Literal {
 	return cppType, nil
 }
 
-ConstValue ← Literal / DoubleConstant / IntConstant / ConstMap / ConstList / Identifier
+ConstValue ← Literal / DoubleConstant / IntConstant / BoolConstant / ConstMap / ConstList / Identifier
 
 TypeAnnotations ← '(' annotations:TypeAnnotation* ')' {
 	var anns []*Annotation
@@ -547,6 +573,10 @@ TypeAnnotation ← __ name:Identifier _ value:('=' __ value:Literal { return val
 
 IntConstant ← [-+]? Digit+ {
 	return strconv.ParseInt(string(c.text), 10, 64)
+}
+
+BoolConstant ← Bool {
+	return strconv.ParseBool(string(c.text))
 }
 
 DoubleConstant ← [+-]? Digit* '.' Digit* ( ['Ee'] IntConstant )? {
@@ -589,11 +619,9 @@ Identifier ← (Letter / '_')+ (Letter / Digit / [._])* {
 	return Identifier(string(c.text)), nil
 }
 
-ListSeparator ← [,;]
+ListSeparator ← [ \t]*[,;]
 Letter ← [A-Za-z]
 Digit ← [0-9]
-
-//
 
 WE ← ( Whitespace / EOL )*
 
@@ -612,3 +640,5 @@ EOL ← '\n'
 EOS ← __ ';' / _ SingleLineComment? EOL / __ EOF
 
 EOF ← !.
+
+Bool ← "true" / "false"

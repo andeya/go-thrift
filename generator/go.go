@@ -16,7 +16,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/henrylee2cn/go-thrift/parser"
+	"github.com/andeya/go-thrift/parser"
+	"github.com/andeya/gust/valconv"
 )
 
 // Flags generater flags
@@ -255,11 +256,11 @@ func (g *goGenerator) resolveType(typ *parser.Type) string {
 
 func (g *goGenerator) formatField(field *parser.Field) string {
 	tags := ""
-	if !field.Optional {
+	if !valconv.Deref(field.Optional) {
 		tags = ",required"
 	}
 	var opt typeOption
-	if field.Optional {
+	if valconv.Deref(field.Optional) {
 		opt |= toOptional
 	}
 	return fmt.Sprintf(
@@ -281,7 +282,7 @@ func getGotag(field *parser.Field) string {
 	}
 	if !hasJSONTag {
 		var omitempty string
-		if field.Optional {
+		if valconv.Deref(field.Optional) {
 			omitempty = ",omitempty"
 		}
 		jsonTag := fmt.Sprintf("json:%q", field.Name+omitempty)
@@ -298,7 +299,7 @@ func (g *goGenerator) formatArguments(arguments []*parser.Field) string {
 	args := make([]string, len(arguments))
 	for i, arg := range arguments {
 		var opt typeOption
-		if arg.Optional {
+		if valconv.Deref(arg.Optional) {
 			opt |= toOptional
 		}
 		args[i] = fmt.Sprintf("%s %s", validGoIdent(lowerCamelCase(arg.Name)), g.formatType(g.pkg, g.thrift, arg.Type, opt))
@@ -389,7 +390,7 @@ func (g *goGenerator) writeEnum(out io.Writer, enum *parser.Enum) error {
 	g.write(out, "\nconst (\n")
 	for _, name := range valueNames {
 		val := enum.Values[name]
-		g.write(out, "\t%s%s %s = %d\n", enumName, camelCase(name), enumName, val.Value)
+		g.write(out, "\t%s%s %s = %d\n", enumName, camelCase(name), enumName, valconv.Deref(val.Value))
 	}
 	g.write(out, ")\n")
 
@@ -494,8 +495,8 @@ func (g *goGenerator) writeService(out io.Writer, svc *parser.Service) error {
 	// Service interface
 
 	g.write(out, "\ntype %s interface {\n", svcName)
-	if svc.Extends != "" {
-		g.write(out, "\t%s\n", camelCase(svc.Extends))
+	if svc.Extends.String() != "" {
+		g.write(out, "\t%s\n", camelCase(svc.Extends.String()))
 	}
 	methodNames := sortedKeys(svc.Methods)
 	for _, k := range methodNames {
@@ -509,10 +510,10 @@ func (g *goGenerator) writeService(out io.Writer, svc *parser.Service) error {
 
 	// Server
 
-	if svc.Extends == "" {
+	if svc.Extends.String() == "" {
 		g.write(out, "\ntype %sServer struct {\n\tImplementation %s\n}\n", svcName, svcName)
 	} else {
-		g.write(out, "\ntype %sServer struct {\n\t%sServer\n\tImplementation %s\n}\n", svcName, camelCase(svc.Extends), svcName)
+		g.write(out, "\ntype %sServer struct {\n\t%sServer\n\tImplementation %s\n}\n", svcName, camelCase(svc.Extends.String()), svcName)
 	}
 
 	// Server method wrappers
@@ -567,7 +568,7 @@ func (g *goGenerator) writeService(out io.Writer, svc *parser.Service) error {
 			// Response struct
 			args := make([]*parser.Field, 0, len(method.Exceptions))
 			if method.ReturnType != nil && method.ReturnType.Name != "void" {
-				args = append(args, &parser.Field{ID: 0, Name: "value", Optional: true /*len(method.Exceptions) != 0*/, Type: method.ReturnType, Default: nil})
+				args = append(args, &parser.Field{ID: 0, Name: "value", Optional: valconv.Ref(true) /*len(method.Exceptions) != 0*/, Type: method.ReturnType, Default: nil})
 			}
 			for _, ex := range method.Exceptions {
 				args = append(args, ex)
@@ -579,10 +580,10 @@ func (g *goGenerator) writeService(out io.Writer, svc *parser.Service) error {
 		}
 	}
 
-	if svc.Extends == "" {
+	if svc.Extends.String() == "" {
 		g.write(out, "\ntype %sClient struct {\n\tClient RPCClient\n}\n", svcName)
 	} else {
-		g.write(out, "\ntype %sClient struct {\n\t%sClient\n}\n", svcName, camelCase(svc.Extends))
+		g.write(out, "\ntype %sClient struct {\n\t%sClient\n}\n", svcName, camelCase(svc.Extends.String()))
 	}
 
 	for _, k := range methodNames {

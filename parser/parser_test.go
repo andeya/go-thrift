@@ -11,6 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/andeya/gust/valconv"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestServiceParsing(t *testing.T) {
@@ -155,7 +159,7 @@ func TestServiceParsing(t *testing.T) {
 			{
 				ID:       2,
 				Name:     "abc",
-				Optional: true,
+				Optional: valconv.Ref(true),
 				Type: &Type{
 					Name: "string",
 				},
@@ -178,7 +182,7 @@ func TestServiceParsing(t *testing.T) {
 				Name:     "dbl",
 				Comment:  "dbl comment1\ndbl comment2",
 				Default:  1.1,
-				Optional: true,
+				Optional: valconv.Ref(true),
 				Type: &Type{
 					Name: "double",
 				},
@@ -188,7 +192,7 @@ func TestServiceParsing(t *testing.T) {
 				Name:     "str",
 				Comment:  "str comment",
 				Default:  "2",
-				Optional: true,
+				Optional: valconv.Ref(true),
 				Type: &Type{
 					Name: "string",
 				},
@@ -197,7 +201,7 @@ func TestServiceParsing(t *testing.T) {
 				ID:       3,
 				Name:     "int32",
 				Default:  int64(3),
-				Optional: true,
+				Optional: valconv.Ref(true),
 				Type: &Type{
 					Name: "i32",
 				},
@@ -206,7 +210,7 @@ func TestServiceParsing(t *testing.T) {
 				ID:       4,
 				Name:     "int64",
 				Default:  int64(5),
-				Optional: true,
+				Optional: valconv.Ref(true),
 				Type: &Type{
 					Name: "i64",
 				},
@@ -225,11 +229,11 @@ func TestServiceParsing(t *testing.T) {
 		Values: map[string]*EnumValue{
 			"ADD": &EnumValue{
 				Name:  "ADD",
-				Value: 1,
+				Value: valconv.Ref[int64](1),
 			},
 			"SUBTRACT": &EnumValue{
 				Name:  "SUBTRACT",
-				Value: 2,
+				Value: valconv.Ref[int64](2),
 			},
 		},
 	}
@@ -245,14 +249,19 @@ func TestServiceParsing(t *testing.T) {
 	svc := thrift.Services["ServiceNAME"]
 	if svc == nil || svc.Name != "ServiceNAME" {
 		t.Fatalf("Parsing service expected to find 'ServiceNAME' rather than '%+v'", thrift.Services)
-	} else if svc.Extends != "SomeBase" {
+	} else if svc.Extends.String() != "SomeBase" {
 		t.Errorf("Expected extends 'SomeBase' got '%s'", svc.Extends)
 	}
 
 	expected := map[string]*Service{
 		"ServiceNAME": &Service{
-			Name:    "ServiceNAME",
-			Extends: "SomeBase",
+			Name: "ServiceNAME",
+			Extends: &Type{
+				Name:        "SomeBase",
+				KeyType:     nil,
+				ValueType:   nil,
+				Annotations: nil,
+			},
 			Methods: map[string]*Method{
 				"login": &Method{
 					Name:    "login",
@@ -262,9 +271,8 @@ func TestServiceParsing(t *testing.T) {
 					},
 					Arguments: []*Field{
 						&Field{
-							ID:       1,
-							Name:     "password",
-							Optional: false,
+							ID:   1,
+							Name: "password",
 							Type: &Type{
 								Name: "string",
 							},
@@ -274,7 +282,7 @@ func TestServiceParsing(t *testing.T) {
 						&Field{
 							ID:       1,
 							Name:     "authex",
-							Optional: true,
+							Optional: valconv.Ref(true),
 							Type: &Type{
 								Name: "AuthenticationException",
 							},
@@ -292,9 +300,7 @@ func TestServiceParsing(t *testing.T) {
 		},
 	}
 	for n, m := range expected["ServiceNAME"].Methods {
-		if !reflect.DeepEqual(svc.Methods[n], m) {
-			t.Fatalf("Parsing service returned method\n%s\ninstead of\n%s", pprint(svc.Methods[n]), pprint(m))
-		}
+		assert.Equal(t, svc.Methods[n], m)
 	}
 }
 
@@ -379,26 +385,24 @@ func TestParseEnumAnnotations(t *testing.T) {
 			Values: map[string]*EnumValue{
 				"ONE": &EnumValue{
 					Name:        "ONE",
-					Value:       0,
+					Value:       valconv.Ref[int64](3),
 					Annotations: []*Annotation{{"a1", "v1"}},
 				},
 				"TWO": &EnumValue{
 					Name:        "TWO",
-					Value:       2,
+					Value:       valconv.Ref[int64](2),
 					Annotations: []*Annotation{{"a2", "v2"}},
 				},
 				"THREE": &EnumValue{
 					Name:        "THREE",
-					Value:       3,
+					Value:       valconv.Ref[int64](4),
 					Annotations: []*Annotation{{"a3", "v3"}},
 				},
 			},
 			Annotations: []*Annotation{{"a4", "v4"}},
 		},
 	}
-	if got := thrift.Enums; !reflect.DeepEqual(expected, got) {
-		t.Errorf("Unexpected annotation parsing got\n%s\n instead of\n%v", pprint(got), pprint(expected))
-	}
+	assert.Equal(t, expected, thrift.Enums)
 }
 
 func TestParseFieldAnnotations(t *testing.T) {
@@ -418,7 +422,7 @@ func TestParseFieldAnnotations(t *testing.T) {
 				&Field{
 					ID:          1,
 					Name:        "f1",
-					Optional:    true,
+					Optional:    valconv.Ref(true),
 					Type:        &Type{Name: "i32"},
 					Annotations: []*Annotation{{"a1", "v1"}},
 				},
@@ -455,13 +459,13 @@ func TestParseStructLikeAnnotations(t *testing.T) {
 		&Field{
 			ID:       1,
 			Name:     "f1",
-			Optional: true,
+			Optional: valconv.Ref(true),
 			Type:     &Type{Name: "i32"},
 		},
 		&Field{
 			ID:       2,
 			Name:     "f2",
-			Optional: true,
+			Optional: valconv.Ref(true),
 			Type:     &Type{Name: "string"},
 		},
 	}
@@ -559,7 +563,7 @@ func TestParseFiles(t *testing.T) {
 	}
 
 	for _, f := range files {
-		_, err := ParseFile(filepath.Join("./testfiles", f))
+		_, err := ParseFile(filepath.Join("../testfiles", f))
 		if err != nil {
 			t.Errorf("Failed to parse file %q: %v", f, err)
 		}

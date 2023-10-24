@@ -11,7 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/henrylee2cn/go-thrift/parser"
+	"github.com/andeya/go-thrift/parser"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestSimple(t *testing.T) {
@@ -109,7 +110,5 @@ func compareFiles(t *testing.T, actualPath, expectedPath string) {
 	if err != nil {
 		t.Fatalf("Failed to read %s: %s", expectedPath, err)
 	}
-	if !bytes.Equal(bytes.TrimSpace(ac), bytes.TrimSpace(ex)) {
-		t.Fatalf("Expected\n%s\ngot\n%s", string(ex), string(ac))
-	}
+	assert.Equal(t, string(bytes.TrimSpace(ac)), string(bytes.TrimSpace(ex)))
 }
