@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/andeya/go-thrift/examples/scribe"
-	"github.com/andeya/go-thrift/thrift"
+	"github.com/samuel/go-thrift/examples/scribe"
+	"github.com/samuel/go-thrift/thrift"
 )
 
 func main() {
@@ -17,10 +17,7 @@ func main() {
 	t := thrift.NewTransport(thrift.NewFramedReadWriteCloser(conn, 0), thrift.BinaryProtocol)
 	client := thrift.NewClient(t, false)
 	scr := scribe.ScribeClient{Client: client}
-	res, err := scr.Log([]*scribe.LogEntry{{
-		Category: "category",
-		Message:  "message",
-	}})
+	res, err := scr.Log([]*scribe.LogEntry{{Category: "category", Message: "message"}})
 	if err != nil {
 		panic(err)
 	}
