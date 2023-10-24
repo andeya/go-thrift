@@ -99,6 +99,18 @@ How to use the go-thrift:
 
     $ generator cassandra.thrift $GOPATH/src/
 
+
+## Regenerate Parser
+
+Provided you have Go correctly installed with the $GOPATH and $GOBIN environment variables set, run:
+
+```shell
+GO111MODULE=off go get -u github.com/mna/pigeon
+GO111MODULE=off go get golang.org/x/tools/cmd/goimports
+cd parser
+go generate
+```
+
 TODO
 ----
 
